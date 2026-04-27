@@ -1,1 +1,221 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Status Board / Brutal</title>
+    <style>
+        /* Импортируем "грубый" шрифт */
+        @import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700&display=swap');
 
+        :root {
+            --bg: #fff01f; /* Ярко-желтый фон */
+            --card-bg: #ffffff;
+            --border: #000000;
+            --shadow: #000000;
+            
+            /* Цвета кнопок */
+            --color-1: #ff90e8; /* Розовый */
+            --color-2: #23a094; /* Бирюзовый */
+            --color-3: #91ff71; /* Салатовый */
+            --color-4: #ff6000; /* Оранжевый */
+        }
+
+        body {
+            font-family: 'Unbounded', sans-serif;
+            background-color: var(--bg);
+            color: var(--border);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 500px;
+            display: flex;
+            flex-direction: column;
+            gap: 40px;
+        }
+
+        /* Стиль "Брутальной" карточки */
+        .brutal-card {
+            background: var(--card-bg);
+            border: 4px solid var(--border);
+            box-shadow: 10px 10px 0px var(--shadow);
+            padding: 25px;
+            position: relative;
+        }
+
+        h2 {
+            margin: 0 0 20px 0;
+            text-transform: uppercase;
+            font-size: 1.5rem;
+            background: var(--bg);
+            display: inline-block;
+            padding: 5px 10px;
+            border: 3px solid var(--border);
+            transform: rotate(-2deg);
+        }
+
+        #myInfo {
+            display: block;
+            font-weight: 700;
+            margin-bottom: 20px;
+            text-decoration: underline;
+        }
+
+        /* Кнопки */
+        .status-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .brutal-btn {
+            font-family: 'Unbounded', sans-serif;
+            font-weight: 700;
+            border: 3px solid var(--border);
+            padding: 15px;
+            cursor: pointer;
+            box-shadow: 4px 4px 0px var(--border);
+            transition: all 0.1s;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+        }
+
+        .brutal-btn:hover {
+            transform: translate(-2px, -2px);
+            box-shadow: 7px 7px 0px var(--border);
+        }
+
+        .brutal-btn:active {
+            transform: translate(4px, 4px);
+            box-shadow: 0px 0px 0px var(--border);
+        }
+
+        /* Список */
+        .user-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .user-row {
+            display: flex;
+            align-items: center;
+            border: 3px solid var(--border);
+            padding: 10px;
+            background: #fff;
+            transition: transform 0.2s;
+        }
+
+        .user-row:hover {
+            transform: scale(1.02);
+            background: #fdfdfd;
+        }
+
+        .status-box {
+            width: 40px;
+            height: 40px;
+            border-right: 3px solid var(--border);
+            margin-right: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .user-info strong {
+            display: block;
+            font-size: 1rem;
+        }
+
+        .user-info small {
+            font-size: 0.75rem;
+            font-weight: 400;
+        }
+
+        /* Анимация мигания для активного статуса */
+        @keyframes blink {
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="brutal-card">
+        <h2>Профиль</h2>
+        <span id="myInfo">Подключение...</span>
+        
+        <div class="status-grid">
+            <button class="brutal-btn" style="background: var(--color-1);" onclick="changeStatus('STUDYING', 'var(--color-1)')">Учусь</button>
+            <button class="brutal-btn" style="background: var(--color-2);" onclick="changeStatus('COFFEE', 'var(--color-2)')">Кофе</button>
+            <button class="brutal-btn" style="background: var(--color-3);" onclick="changeStatus('GAMING', 'var(--color-3)')">В игре</button>
+            <button class="brutal-btn" style="background: var(--color-4);" onclick="changeStatus('HOME', 'var(--color-4)')">Дома</button>
+        </div>
+    </div>
+
+    <div class="brutal-card">
+        <h2>Группа</h2>
+        <div id="groupList" class="user-list">
+            <p>Ждем ответа от базы...</p>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
+
+    const URL = 'https://uylunguxekgzxprnsgrr.supabase.co';
+    const KEY = 'sb_publishable_aLabuAHu5q47IsXEKy8QXw_HTdlY4jt';
+    const supabase = createClient(URL, KEY);
+
+    const MY_ID = '39885df0-7222-411f-b319-ad7ecc6bdfde';
+
+    window.changeStatus = async (text, color) => {
+        const { error } = await supabase
+            .from('profiles')
+            .update({ status: text, color: color })
+            .eq('id', MY_ID);
+
+        if (error) {
+            console.error(error);
+        } else {
+            fetchGroup();
+        }
+    };
+
+    async function fetchGroup() {
+        const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .order('username', { ascending: true });
+
+        if (error) return console.error(error);
+
+        const list = document.getElementById('groupList');
+        list.innerHTML = data.map(user => `
+            <div class="user-row">
+                <div class="status-box" style="background: ${user.color || '#eee'}">
+                    ⚡
+                </div>
+                <div class="user-info">
+                    <strong>${user.username}</strong>
+                    <small>${user.status || 'OFFLINE'}</small>
+                </div>
+            </div>
+        `).join('');
+
+        const me = data.find(u => u.id === MY_ID);
+        if (me) document.getElementById('myInfo').innerText = `ID: ${me.username}`;
+    }
+
+    fetchGroup();
+    setInterval(fetchGroup, 5000);
+</script>
+
+</body>
+</html>
