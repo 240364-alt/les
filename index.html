@@ -3,22 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Status Board / Brutal</title>
+    <title>Status Board / Brutal Auth</title>
     <style>
-        /* Импортируем "грубый" шрифт */
         @import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700&display=swap');
 
         :root {
-            --bg: #fff01f; /* Ярко-желтый фон */
+            --bg: #fff01f;
             --card-bg: #ffffff;
             --border: #000000;
             --shadow: #000000;
-            
-            /* Цвета кнопок */
-            --color-1: #ff90e8; /* Розовый */
-            --color-2: #23a094; /* Бирюзовый */
-            --color-3: #91ff71; /* Салатовый */
-            --color-4: #ff6000; /* Оранжевый */
+            --color-1: #ff90e8;
+            --color-2: #23a094;
+            --color-3: #91ff71;
+            --color-4: #ff6000;
         }
 
         body {
@@ -39,7 +36,6 @@
             gap: 40px;
         }
 
-        /* Стиль "Брутальной" карточки */
         .brutal-card {
             background: var(--card-bg);
             border: 4px solid var(--border);
@@ -64,9 +60,9 @@
             font-weight: 700;
             margin-bottom: 20px;
             text-decoration: underline;
+            word-break: break-all;
         }
 
-        /* Кнопки */
         .status-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -95,7 +91,13 @@
             box-shadow: 0px 0px 0px var(--border);
         }
 
-        /* Список */
+        /* Стиль для кнопки Google */
+        .auth-btn {
+            grid-column: span 2;
+            margin-top: 10px;
+            background: #fff;
+        }
+
         .user-list {
             display: flex;
             flex-direction: column;
@@ -109,11 +111,6 @@
             padding: 10px;
             background: #fff;
             transition: transform 0.2s;
-        }
-
-        .user-row:hover {
-            transform: scale(1.02);
-            background: #fdfdfd;
         }
 
         .status-box {
@@ -136,11 +133,6 @@
             font-size: 0.75rem;
             font-weight: 400;
         }
-
-        /* Анимация мигания для активного статуса */
-        @keyframes blink {
-            50% { opacity: 0.5; }
-        }
     </style>
 </head>
 <body>
@@ -148,13 +140,16 @@
 <div class="container">
     <div class="brutal-card">
         <h2>Профиль</h2>
-        <span id="myInfo">Подключение...</span>
+        <span id="myInfo">Загрузка...</span>
         
         <div class="status-grid">
-            <button class="brutal-btn" style="background: var(--color-1);" onclick="changeStatus(' Учучь', 'var(--color-1)')">Учусь</button>
-            <button class="brutal-btn" style="background: var(--color-2);" onclick="changeStatus('Пью кофе', 'var(--color-2)')">Кофе</button>
+            <button class="brutal-btn" style="background: var(--color-1);" onclick="changeStatus('Учусь', 'var(--color-1)')">Учусь</button>
+            <button class="brutal-btn" style="background: var(--color-2);" onclick="changeStatus('Кофе', 'var(--color-2)')">Кофе</button>
             <button class="brutal-btn" style="background: var(--color-3);" onclick="changeStatus('В игре', 'var(--color-3)')">В игре</button>
             <button class="brutal-btn" style="background: var(--color-4);" onclick="changeStatus('Дома', 'var(--color-4)')">Дома</button>
+            
+            <button id="loginBtn" class="brutal-btn auth-btn">Войти через Google</button>
+            <button id="logoutBtn" class="brutal-btn auth-btn" style="display:none; background: #eee;">Выйти</button>
         </div>
     </div>
 
@@ -173,19 +168,64 @@
     const KEY = 'sb_publishable_aLabuAHu5q47IsXEKy8QXw_HTdlY4jt';
     const supabase = createClient(URL, KEY);
 
-    const MY_ID = '39885df0-7222-411f-b319-ad7ecc6bdfde';
+    let currentUser = null;
+
+    // --- ЛОГИКА АВТОРИЗАЦИИ ---
+
+    // Слушаем изменения состояния (вход/выход)
+    supabase.auth.onAuthStateChange((event, session) => {
+        currentUser = session?.user || null;
+        updateUI();
+        fetchGroup();
+    });
+
+    function updateUI() {
+        const info = document.getElementById('myInfo');
+        const loginBtn = document.getElementById('loginBtn');
+        const logoutBtn = document.getElementById('logoutBtn');
+
+        if (currentUser) {
+            info.innerText = `Вы: ${currentUser.email}`;
+            loginBtn.style.display = 'none';
+            logoutBtn.style.display = 'block';
+        } else {
+            info.innerText = "Войдите, чтобы менять статус";
+            loginBtn.style.display = 'block';
+            logoutBtn.style.display = 'none';
+        }
+    }
+
+    document.getElementById('loginBtn').onclick = async () => {
+        await supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: { redirectTo: window.location.origin }
+        });
+    };
+
+    document.getElementById('logoutBtn').onclick = async () => {
+        await supabase.auth.signOut();
+    };
+
+    // --- ЛОГИКА ДАННЫХ ---
 
     window.changeStatus = async (text, color) => {
+        if (!currentUser) {
+            alert("Сначала нужно войти!");
+            return;
+        }
+
+        // Используем upsert: если записи нет - создаст, если есть - обновит
         const { error } = await supabase
             .from('profiles')
-            .update({ status: text, color: color })
-            .eq('id', MY_ID);
+            .upsert({ 
+                id: currentUser.id, 
+                username: currentUser.email.split('@')[0], // Имя из почты
+                status: text, 
+                color: color 
+            });
 
-        if (error) {
-            console.error(error);
-        } else {
-            fetchGroup();
-        }
+        if (error) console.error(error);
+        else fetchGroup();
     };
 
     async function fetchGroup() {
@@ -208,12 +248,9 @@
                 </div>
             </div>
         `).join('');
-
-        const me = data.find(u => u.id === MY_ID);
-        if (me) document.getElementById('myInfo').innerText = `ID: ${me.username}`;
     }
 
-    fetchGroup();
+    // Запуск
     setInterval(fetchGroup, 5000);
 </script>
 
