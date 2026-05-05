@@ -61,6 +61,7 @@
             margin-bottom: 20px;
             text-decoration: underline;
             word-break: break-all;
+            font-size: 0.9rem;
         }
 
         .status-grid {
@@ -87,16 +88,17 @@
         }
 
         .brutal-btn:active {
-            transform: translate(4px, 4px);
-            box-shadow: 0px 0px 0px var(--border);
+            transform: translate(2px, 2px);
+            box-shadow: 2px 2px 0px var(--border);
         }
 
-        /* Стиль для кнопки Google */
         .auth-btn {
             grid-column: span 2;
             margin-top: 10px;
-            background: #fff;
         }
+
+        #loginBtn { background: #fff; color: #000; }
+        #logoutBtn { background: #000; color: #fff; display: none; }
 
         .user-list {
             display: flex;
@@ -110,7 +112,6 @@
             border: 3px solid var(--border);
             padding: 10px;
             background: #fff;
-            transition: transform 0.2s;
         }
 
         .status-box {
@@ -124,15 +125,8 @@
             flex-shrink: 0;
         }
 
-        .user-info strong {
-            display: block;
-            font-size: 1rem;
-        }
-
-        .user-info small {
-            font-size: 0.75rem;
-            font-weight: 400;
-        }
+        .user-info strong { display: block; font-size: 1rem; }
+        .user-info small { font-size: 0.75rem; font-weight: 400; }
     </style>
 </head>
 <body>
@@ -149,14 +143,14 @@
             <button class="brutal-btn" style="background: var(--color-4);" onclick="changeStatus('Дома', 'var(--color-4)')">Дома</button>
             
             <button id="loginBtn" class="brutal-btn auth-btn">Войти через Google</button>
-            <button id="logoutBtn" class="brutal-btn auth-btn" style="display:none; background: #eee;">Выйти</button>
+            <button id="logoutBtn" class="brutal-btn auth-btn">Выйти из аккаунта</button>
         </div>
     </div>
 
     <div class="brutal-card">
         <h2>Группа</h2>
         <div id="groupList" class="user-list">
-            <p>Ждем ответа от базы...</p>
+            <p>Синхронизация...</p>
         </div>
     </div>
 </div>
@@ -170,64 +164,71 @@
 
     let currentUser = null;
 
-    // --- ЛОГИКА АВТОРИЗАЦИИ ---
-
-    // Слушаем изменения состояния (вход/выход)
-    supabase.auth.onAuthStateChange((event, session) => {
+    // Обновление интерфейса
+    function updateUI(session) {
         currentUser = session?.user || null;
-        updateUI();
-        fetchGroup();
-    });
-
-    function updateUI() {
         const info = document.getElementById('myInfo');
-        const loginBtn = document.getElementById('loginBtn');
-        const logoutBtn = document.getElementById('logoutBtn');
+        const lBtn = document.getElementById('loginBtn');
+        const oBtn = document.getElementById('logoutBtn');
 
         if (currentUser) {
             info.innerText = `Вы: ${currentUser.email}`;
-            loginBtn.style.display = 'none';
-            logoutBtn.style.display = 'block';
+            lBtn.style.display = 'none';
+            oBtn.style.display = 'block';
         } else {
-            info.innerText = "Войдите, чтобы менять статус";
-            loginBtn.style.display = 'block';
-            logoutBtn.style.display = 'none';
+            info.innerText = "Войдите через Google для смены статуса";
+            lBtn.style.display = 'block';
+            oBtn.style.display = 'none';
         }
     }
 
+    // Инициализация при загрузке
+    supabase.auth.getSession().then(({ data: { session } }) => {
+        updateUI(session);
+        fetchGroup();
+    });
+
+    // Слушатель входа/выхода
+    supabase.auth.onAuthStateChange((_event, session) => {
+        updateUI(session);
+        fetchGroup();
+    });
+
+    // Кнопка входа (с жестким адресом для GitHub)
     document.getElementById('loginBtn').onclick = async () => {
         await supabase.auth.signInWithOAuth({
             provider: 'google',
-            options: { redirectTo: window.location.origin }
+            options: {
+                redirectTo: 'https://240364-alt.github.io/les/'
+            }
         });
     };
 
+    // Кнопка выхода
     document.getElementById('logoutBtn').onclick = async () => {
-        await supabase.auth.signOut();
+        const { error } = await supabase.auth.signOut();
+        if (error) console.error('Ошибка выхода:', error);
+        window.location.reload();
     };
 
-    // --- ЛОГИКА ДАННЫХ ---
-
+    // Смена статуса
     window.changeStatus = async (text, color) => {
-        if (!currentUser) {
-            alert("Сначала нужно войти!");
-            return;
-        }
+        if (!currentUser) return alert("Нужно войти через Google!");
 
-        // Используем upsert: если записи нет - создаст, если есть - обновит
         const { error } = await supabase
             .from('profiles')
             .upsert({ 
                 id: currentUser.id, 
-                username: currentUser.email.split('@')[0], // Имя из почты
+                username: currentUser.email.split('@')[0], 
                 status: text, 
                 color: color 
             });
 
-        if (error) console.error(error);
+        if (error) console.error('Ошибка базы:', error);
         else fetchGroup();
     };
 
+    // Получение списка
     async function fetchGroup() {
         const { data, error } = await supabase
             .from('profiles')
@@ -239,9 +240,7 @@
         const list = document.getElementById('groupList');
         list.innerHTML = data.map(user => `
             <div class="user-row">
-                <div class="status-box" style="background: ${user.color || '#eee'}">
-                    ⚡
-                </div>
+                <div class="status-box" style="background: ${user.color || '#eee'}">⚡</div>
                 <div class="user-info">
                     <strong>${user.username}</strong>
                     <small>${user.status || 'OFFLINE'}</small>
@@ -250,7 +249,6 @@
         `).join('');
     }
 
-    // Запуск
     setInterval(fetchGroup, 5000);
 </script>
 
