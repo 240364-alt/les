@@ -67,7 +67,6 @@
             font-size: 0.9rem;
         }
 
-        /* Стильный бруталистичный бейдж для общего времени */
         .total-time-badge {
             font-size: 0.85rem;
             background: var(--color-1);
@@ -84,7 +83,6 @@
             transform: rotate(1deg);
         }
 
-        /* Личный таймер в профиле */
         .timer-container {
             display: none;
             align-items: center;
@@ -142,7 +140,6 @@
         #loginBtn { background: #fff; color: #000; }
         #logoutBtn { background: #000; color: #fff; display: none; }
 
-        /* Монитор группы */
         .user-list {
             display: flex;
             flex-direction: column;
@@ -174,7 +171,6 @@
         .user-info strong { display: block; font-size: 1rem; font-weight: 700; }
         .user-info small { font-size: 0.8rem; font-weight: 400; color: #555; }
         
-        /* Правая часть: Таймер в списке группы */
         .group-timer {
             margin-left: auto;
             font-size: 0.85rem;
@@ -192,7 +188,6 @@
             background: #fff0e6;
         }
 
-        /* Чат */
         .chat-box {
             border: 3px solid var(--border);
             background: #fff;
@@ -428,7 +423,7 @@
         if (!currentUser) return alert("Нужно войти через Google!");
         
         if (isPausedLocal && currentStudyTimestamp) {
-            return togglePause();
+            return togglePause(); // Если на паузе — кнопка «Учусь» снимет с неё
         }
 
         const name = currentUser.user_metadata.full_name || currentUser.email.split('@')[0];
@@ -453,6 +448,7 @@
         const name = currentUser.user_metadata.full_name || currentUser.email.split('@')[0];
 
         if (!isPausedLocal) {
+            // Ставим на паузу: фиксируем время текущей сессии
             const sessionSeconds = Math.floor((new Date() - currentStudyTimestamp) / 1000);
             const newTotal = accumulatedSeconds + sessionSeconds;
 
@@ -466,6 +462,7 @@
                 is_online: true
             }, { onConflict: 'id' });
         } else {
+            // Снимаем с паузы: открываем новую сессию с новой меткой старта
             const startTime = new Date().toISOString();
             await supabase.from('profiles').upsert({
                 id: currentUser.id,
@@ -486,6 +483,7 @@
         clearInterval(localProfileTimer);
 
         let finalTotal = accumulatedSeconds;
+        // Если выключаем прямо во время активной учёбы (не с паузы) — досчитываем хвост времени
         if (!isPausedLocal && currentStudyTimestamp) {
             const sessionSeconds = Math.floor((new Date() - currentStudyTimestamp) / 1000);
             finalTotal += sessionSeconds;
@@ -504,6 +502,9 @@
         }, { onConflict: 'id' });
 
         currentStudyTimestamp = null;
+        isPausedLocal = false;
+        accumulatedSeconds = finalTotal;
+        
         document.getElementById('timerContainer').style.display = 'none';
         checkActiveStudy();
         fetchGroup();
@@ -513,22 +514,32 @@
         if (!currentUser) return alert("Нужно войти через Google!");
         const name = currentUser.user_metadata.full_name || currentUser.email.split('@')[0];
 
-        // Чтобы обычный статус не затирал таймер, передаем текущие параметры времени
+        let finalTotal = accumulatedSeconds;
+        
+        // Если меняем статус прямо во время активной учёбы, сначала сохраняем время в буфер
+        if (currentStudyTimestamp && !isPausedLocal) {
+            const sessionSeconds = Math.floor((new Date() - currentStudyTimestamp) / 1000);
+            finalTotal += sessionSeconds;
+        }
+
         const updateData = {
             id: currentUser.id,
             username: name,
             status: text,
             color: color,
             is_online: true,
-            total_study_time: accumulatedSeconds,
-            is_paused: isPausedLocal
+            total_study_time: finalTotal,
+            study_started_at: null, // Сбрасываем активный таймер, так как статус изменился
+            is_paused: false
         };
 
-        if (currentStudyTimestamp) {
-            updateData.study_started_at = currentStudyTimestamp.toISOString();
-        }
-
         await supabase.from('profiles').upsert(updateData, { onConflict: 'id' });
+        
+        currentStudyTimestamp = null;
+        isPausedLocal = false;
+        accumulatedSeconds = finalTotal;
+        
+        checkActiveStudy();
         fetchGroup();
     };
 
