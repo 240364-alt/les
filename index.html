@@ -67,7 +67,7 @@
             font-size: 0.9rem;
         }
 
-        /* Таймер в профиле текущего юзера */
+        /* Личный таймер в профиле */
         .timer-container {
             display: none;
             align-items: center;
@@ -83,6 +83,9 @@
             font-size: 1.2rem;
             font-weight: 700;
             color: #0055ff;
+        }
+        .timer-container.break-mode .timer-time {
+            color: var(--color-4);
         }
 
         .status-grid {
@@ -122,6 +125,7 @@
         #loginBtn { background: #fff; color: #000; }
         #logoutBtn { background: #000; color: #fff; display: none; }
 
+        /* Монитор группы */
         .user-list {
             display: flex;
             flex-direction: column;
@@ -131,19 +135,18 @@
         .user-row {
             display: flex;
             align-items: center;
-            border-bottom: 1px solid #eee;
-            padding: 12px 0;
-            position: relative;
-        }
-
-        .user-row:last-child {
-            border-bottom: none;
+            border: 3px solid var(--border);
+            padding: 12px;
+            background: #fff;
+            box-shadow: 4px 4px 0px var(--border);
+            border-radius: 8px;
         }
 
         .online-dot {
-            width: 10px;
-            height: 10px;
+            width: 12px;
+            height: 12px;
             border-radius: 50%;
+            border: 2px solid var(--border);
             margin-right: 12px;
             flex-shrink: 0;
         }
@@ -151,26 +154,25 @@
         .online-dot.false { background-color: var(--offline); }
 
         .user-info { flex-grow: 1; }
-        .user-info strong { display: block; font-size: 1.1rem; font-weight: 700; }
-        .user-info small { font-size: 0.85rem; font-weight: 400; color: #555; }
+        .user-info strong { display: block; font-size: 1rem; font-weight: 700; }
+        .user-info small { font-size: 0.8rem; font-weight: 400; color: #555; }
         
-        /* Таймер у пользователей в списке группы */
-        .group-status-wrapper {
-            text-align: right;
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-            gap: 2px;
-        }
-        .group-status-text {
-            font-size: 0.9rem;
-            font-weight: 700;
-        }
+        /* Правая часть: Таймер в списке группы */
         .group-timer {
-            font-size: 0.8rem;
-            font-weight: 400;
-            color: #4361ee;
+            margin-left: auto;
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #0055ff;
+            background: #e6f0ff;
+            border: 2px solid var(--border);
+            padding: 6px 10px;
+            box-shadow: 2px 2px 0px var(--border);
             white-space: nowrap;
+            border-radius: 6px;
+        }
+        .group-timer.break {
+            color: #ff6000;
+            background: #fff0e6;
         }
 
         /* Чат */
@@ -234,16 +236,16 @@
         <span id="myInfo">Загрузка...</span>
         
         <div id="timerContainer" class="timer-container">
-            <span>⏱️ Сессия:</span>
+            <span id="timerLabel">⏱️ Сессия:</span>
             <span id="timerTime" class="timer-time">0 сек.</span>
             <button class="brutal-btn" style="padding: 5px 10px; margin-left: auto; background: var(--color-4); font-size: 0.7rem;" onclick="stopStudy()">Завершить</button>
         </div>
 
         <div class="status-grid">
-            <button class="brutal-btn" style="background: var(--color-1);" onclick="changeStatus('Учусь', 'var(--color-1)', true)">Учусь</button>
-            <button class="brutal-btn" style="background: var(--color-2);" onclick="changeStatus('Кофе', 'var(--color-2)', true)">Кофе</button>
-            <button class="brutal-btn" style="background: var(--color-3);" onclick="changeStatus('В игре', 'var(--color-3)', true)">В игре</button>
-            <button class="brutal-btn" style="background: var(--color-4);" onclick="changeStatus('Дома', 'var(--color-4)', true)">Дома</button>
+            <button class="brutal-btn" style="background: var(--color-1);" onclick="changeStatus('Учусь', 'var(--color-1)', 'study')">Учусь</button>
+            <button class="brutal-btn" style="background: var(--color-2);" onclick="changeStatus('Кофе', 'var(--color-2)', 'break')">Кофе</button>
+            <button class="brutal-btn" style="background: var(--color-3);" onclick="changeStatus('В игре', 'var(--color-3)', 'stop')">В игре</button>
+            <button class="brutal-btn" style="background: var(--color-4);" onclick="changeStatus('Дома', 'var(--color-4)', 'stop')">Дома</button>
             
             <button id="loginBtn" class="brutal-btn auth-btn">Войти через Google</button>
             <button id="logoutBtn" class="brutal-btn auth-btn">Выйти из аккаунта</button>
@@ -280,15 +282,15 @@
     let currentStudyTimestamp = null;
     let cachedGroupData = [];
 
-    // Превращает миллисекунды в читаемый формат "0ч 0м 0с"
     function formatDuration(ms) {
-        if (ms < 0 || isNaN(ms)) return '0ч 0м 0с';
+        if (ms < 0 || isNaN(ms)) return '0 сек.';
         const totalSeconds = Math.floor(ms / 1000);
-        const seconds = totalSeconds % 60;
+        if (totalSeconds < 60) return `${totalSeconds} сек.`;
         const minutes = Math.floor(totalSeconds / 60) % 60;
         const hours = Math.floor(totalSeconds / 3600);
         
-        return `${hours}ч ${minutes}м ${seconds}с`;
+        if (hours > 0) return `${hours}ч ${minutes}м`;
+        return `${minutes} мин.`;
     }
 
     function formatTime(isoString) {
@@ -327,19 +329,31 @@
     }
 
     async function checkActiveStudy() {
-        const { data } = await supabase.from('profiles').select('study_started_at').eq('id', currentUser.id).single();
+        const { data } = await supabase.from('profiles').select('status, study_started_at').eq('id', currentUser.id).single();
         if (data && data.study_started_at) {
-            startLocalTimer(data.study_started_at);
+            const mode = data.status === 'Кофе' ? 'break' : 'study';
+            startLocalTimer(data.study_started_at, mode);
         } else {
             document.getElementById('timerContainer').style.display = 'none';
             clearInterval(localProfileTimer);
         }
     }
 
-    function startLocalTimer(timestamp) {
+    function startLocalTimer(timestamp, mode = 'study') {
         currentStudyTimestamp = new Date(timestamp);
-        document.getElementById('timerContainer').style.display = 'flex';
+        const container = document.getElementById('timerContainer');
+        const label = document.getElementById('timerLabel');
+        
+        container.style.display = 'flex';
         clearInterval(localProfileTimer);
+
+        if (mode === 'break') {
+            container.classList.add('break-mode');
+            label.innerText = '☕ Перерыв:';
+        } else {
+            container.classList.remove('break-mode');
+            label.innerText = '⏱️ Сессия:';
+        }
         
         localProfileTimer = setInterval(() => {
             const diff = new Date() - currentStudyTimestamp;
@@ -347,16 +361,16 @@
         }, 1000);
     }
 
-    // Запуск ежесекундного обновления таймеров для ВСЕХ участников группы
     function startGroupLiveTimers() {
         clearInterval(groupTimerInterval);
         groupTimerInterval = setInterval(() => {
             cachedGroupData.forEach(user => {
-                if (user.study_started_at) {
+                if ((user.status === 'Учусь' || user.status === 'Кофе') && user.study_started_at) {
                     const timerElement = document.getElementById(`timer-${user.id}`);
                     if (timerElement) {
                         const diff = new Date() - new Date(user.study_started_at);
-                        timerElement.innerText = `⏱️ ${formatDuration(diff)}`;
+                        const icon = user.status === 'Кофе' ? '☕' : '⏱️';
+                        timerElement.innerText = `${icon} ${formatDuration(diff)}`;
                     }
                 }
             });
@@ -391,7 +405,7 @@
         window.location.reload();
     };
 
-    window.changeStatus = async (text, color, startStudy = false) => {
+    window.changeStatus = async (text, color, timerMode = 'stop') => {
         if (!currentUser) return alert("Нужно войти через Google!");
 
         const name = currentUser.user_metadata.full_name || currentUser.email.split('@')[0];
@@ -403,10 +417,10 @@
             is_online: true
         };
 
-        if (startStudy) {
+        if (timerMode === 'study' || timerMode === 'break') {
             const startTime = new Date().toISOString();
             updateData.study_started_at = startTime;
-            startLocalTimer(startTime);
+            startLocalTimer(startTime, timerMode);
         } else {
             updateData.study_started_at = null;
             document.getElementById('timerContainer').style.display = 'none';
@@ -447,29 +461,23 @@
         const now = new Date();
 
         list.innerHTML = data.map(user => {
-            let timerHtml = '⏱️ 0ч 0м 0с';
-            if (user.study_started_at) {
+            let timerHtml = '';
+            
+            if ((user.status === 'Учусь' || user.status === 'Кофе') && user.study_started_at) {
                 const diff = now - new Date(user.study_started_at);
-                timerHtml = `⏱️ ${formatDuration(diff)}`;
+                const isBreak = user.status === 'Кофе';
+                const icon = isBreak ? '☕' : '⏱️';
+                timerHtml = `<div id="timer-${user.id}" class="group-timer ${isBreak ? 'break' : ''}">${icon} ${formatDuration(diff)}</div>`;
             }
-
-            // Иконки под типы статусов как на скриншотах
-            let statusIcon = '🏠';
-            if (user.status === 'Учусь') statusIcon = '📖';
-            if (user.status === 'Кофе') statusIcon = '☕';
-            if (user.status === 'В игре') statusIcon = '🎮';
-            if (user.status === 'Отдыхает') statusIcon = '💤';
 
             return `
                 <div class="user-row">
                     <div class="online-dot ${user.is_online ? 'true' : 'false'}"></div>
                     <div class="user-info">
                         <strong>${user.username}</strong>
+                        <small>Статус: ${user.status || 'Дома'}</small>
                     </div>
-                    <div class="group-status-wrapper">
-                        <span class="group-status-text">${statusIcon} ${user.status || 'Дома'}</span>
-                        <small id="timer-${user.id}" class="group-timer">${timerHtml}</small>
-                    </div>
+                    ${timerHtml}
                 </div>
             `;
         }).join('');
