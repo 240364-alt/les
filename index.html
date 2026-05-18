@@ -71,11 +71,12 @@
             font-size: 0.8rem;
             background: #fff;
             border: 2px solid var(--border);
-            padding: 2px 6px;
+            padding: 5px 10px;
             margin-top: -10px;
             margin-bottom: 15px;
             display: inline-block;
             border-radius: 4px;
+            font-weight: 700;
         }
 
         /* Личный таймер в профиле */
@@ -245,7 +246,7 @@
     <div class="brutal-card">
         <h2>Профиль</h2>
         <span id="myInfo">Загрузка...</span>
-        <div id="myTotalTime" class="total-time-badge" style="display: none;">Всего набрано: 0 сек.</div>
+        <div id="myTotalTime" class="total-time-badge" style="display: none;">Всего накоплено: 0 сек.</div>
         
         <div id="timerContainer" class="timer-container">
             <span id="timerLabel">⏱️ Сессия:</span>
@@ -352,11 +353,11 @@
         const { data } = await supabase.from('profiles').select('study_started_at, total_study_time, is_paused').eq('id', currentUser.id).single();
         
         if (data) {
-            const total = data.total_study_time || 0;
-            document.getElementById('myTotalTime').innerText = `Всего набрано: ${formatDuration(total)}`;
+            accumulatedSeconds = data.total_study_time || 0;
+            document.getElementById('myTotalTime').innerText = `Всего накоплено: ${formatDuration(accumulatedSeconds)}`;
             
             if (data.study_started_at) {
-                startLocalTimer(data.study_started_at, total, data.is_paused);
+                startLocalTimer(data.study_started_at, accumulatedSeconds, data.is_paused);
             } else {
                 document.getElementById('timerContainer').style.display = 'none';
                 clearInterval(localProfileTimer);
@@ -381,8 +382,6 @@
             label.innerText = '☕ Пауза:';
             pBtn.innerText = 'Продолжить';
             pBtn.style.background = 'var(--color-3)';
-            
-            // На паузе показываем зафиксированное на момент остановки время
             document.getElementById('timerTime').innerText = formatDuration(accumulatedSeconds);
         } else {
             container.classList.remove('paused');
@@ -421,7 +420,6 @@
     window.startStudy = async () => {
         if (!currentUser) return alert("Нужно войти через Google!");
         
-        // Перестраховка: если уже запущен таймер и мы на паузе, просто снимаем с паузы
         if (isPausedLocal && currentStudyTimestamp) {
             return togglePause();
         }
@@ -429,7 +427,6 @@
         const name = currentUser.user_metadata.full_name || currentUser.email.split('@')[0];
         const startTime = new Date().toISOString();
 
-        // Берем актуальное сохраненное общее время из БД
         const { data } = await supabase.from('profiles').select('total_study_time').eq('id', currentUser.id).single();
         const currentTotal = data?.total_study_time || 0;
 
@@ -452,7 +449,6 @@
         const name = currentUser.user_metadata.full_name || currentUser.email.split('@')[0];
 
         if (!isPausedLocal) {
-            // Включаем ПАУЗУ: считаем сколько секунд набежало с последнего старта и плюсуем в базу
             const sessionSeconds = Math.floor((new Date() - currentStudyTimestamp) / 1000);
             const newTotal = accumulatedSeconds + sessionSeconds;
 
@@ -466,7 +462,6 @@
                 is_online: true
             });
         } else {
-            // Выключаем паузу (ПРОДОЛЖАЕМ): обновляем точку старта study_started_at на текущий момент
             const startTime = new Date().toISOString();
             await supabase.from('profiles').upsert({
                 id: currentUser.id,
@@ -488,7 +483,6 @@
         document.getElementById('timerContainer').style.display = 'none';
 
         let finalTotal = accumulatedSeconds;
-        // Если завершаем прямо во время активного тикания, добавляем хвостик времени
         if (!isPausedLocal && currentStudyTimestamp) {
             const sessionSeconds = Math.floor((new Date() - currentStudyTimestamp) / 1000);
             finalTotal += sessionSeconds;
@@ -515,8 +509,6 @@
         if (!currentUser) return alert("Нужно войти через Google!");
         const name = currentUser.user_metadata.full_name || currentUser.email.split('@')[0];
 
-        // Обычные кнопки статуса не ломают таймер сессии, если он запущен,
-        // они просто меняют текстовую плашку статуса пользователя.
         await supabase.from('profiles').upsert({
             id: currentUser.id,
             username: name,
@@ -527,7 +519,7 @@
         fetchGroup();
     };
 
-    // --- Дальнейшая обвязка (Синхронизация, чат, Supabase) без изменений ---
+    // --- Логика чата и синхронизации без изменений ---
 
     supabase.auth.getSession().then(({ data: { session } }) => {
         updateUI(session);
@@ -581,7 +573,6 @@
                     timerHtml = `<div id="timer-${user.id}" class="group-timer">⏱️ Учусь: ${formatDuration(baseSec + liveSec)}</div>`;
                 }
             } else if (user.total_study_time > 0) {
-                // Если сейчас не учится, но время есть — выводим архивный баланс
                 timerHtml = `<div class="group-timer paused" style="background:#eee; color:#666;">⌛ Всего: ${formatDuration(user.total_study_time)}</div>`;
             }
 
