@@ -182,7 +182,7 @@
             padding: 10px;
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 12px;
             margin-bottom: 15px;
         }
         .chat-msg {
@@ -196,6 +196,12 @@
             border: 2px solid var(--border);
             margin-right: 8px;
             display: inline-block;
+        }
+        .chat-msg b span {
+            font-size: 0.65rem;
+            font-weight: 400;
+            color: #555;
+            margin-left: 5px;
         }
         .chat-input-group {
             display: flex;
@@ -271,20 +277,20 @@
     let currentStudyTimestamp = null;
     let cachedGroupData = [];
 
-    // Красивое брутальное форматирование времени сессии
     function formatDuration(ms) {
         if (ms < 0 || isNaN(ms)) return '0 сек.';
         const totalSeconds = Math.floor(ms / 1000);
-        if (totalSeconds < 60) {
-            return `${totalSeconds} сек.`;
-        }
+        if (totalSeconds < 60) return `${totalSeconds} сек.`;
         const minutes = Math.floor(totalSeconds / 60) % 60;
         const hours = Math.floor(totalSeconds / 3600);
         
-        if (hours > 0) {
-            return `${hours}ч ${minutes}м`;
-        }
+        if (hours > 0) return `${hours}ч ${minutes}м`;
         return `${minutes} мин.`;
+    }
+
+    function formatTime(isoString) {
+        const d = isoString ? new Date(isoString) : new Date();
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
     function updateUI(session) {
@@ -338,7 +344,6 @@
         }, 1000);
     }
 
-    // Запуск тиканья таймеров внутри монитора группы раз в секунду
     function startGroupLiveTimers() {
         clearInterval(groupTimerInterval);
         groupTimerInterval = setInterval(() => {
@@ -354,7 +359,6 @@
         }, 1000);
     }
 
-    // Инициализация
     supabase.auth.getSession().then(({ data: { session } }) => {
         updateUI(session);
         fetchGroup();
@@ -404,9 +408,8 @@
             clearInterval(localProfileTimer);
         }
 
-        const { error } = await supabase.from('profiles').upsert(updateData);
-        if (error) console.error('Ошибка изменения статуса:', error);
-        else fetchGroup();
+        await supabase.from('profiles').upsert(updateData);
+        fetchGroup();
     };
 
     window.stopStudy = async () => {
@@ -460,7 +463,6 @@
         startGroupLiveTimers();
     }
 
-    // Логика общего чата
     async function fetchChat() {
         const { data, error } = await supabase
             .from('messages')
@@ -468,11 +470,11 @@
             .order('id', { ascending: false })
             .limit(40);
 
-        if (error) return console.error('Ошибка загрузки сообщений:', error);
+        if (error) return console.error(error);
         
         const chatBox = document.getElementById('chatBox');
         chatBox.innerHTML = data.reverse().map(msg => `
-            <div class="chat-msg"><b>${msg.username}:</b><span>${escapeHtml(msg.text)}</span></div>
+            <div class="chat-msg"><b>${msg.username}<span>${formatTime(msg.created_at)}</span>:</b><span>${escapeHtml(msg.text)}</span></div>
         `).join('');
         chatBox.scrollTop = chatBox.scrollHeight;
     }
@@ -484,24 +486,23 @@
         if (!text) return;
 
         input.value = '';
-        const { error } = await supabase.from('messages').insert({
+        await supabase.from('messages').insert({
             username: currentUser.email.split('@')[0],
             text: text
         });
-        if (error) console.error('Ошибка отправки сообщения:', error);
     }
 
     document.getElementById('chatSendBtn').onclick = sendMessage;
     document.getElementById('chatInput').onkeydown = (e) => { if (e.key === 'Enter') sendMessage(); };
 
-    // Подписка на изменения таблиц в Realtime режиме
+    // Realtime подписка
     supabase
-        .channel('any-changes')
+        .channel('public_changes')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
             const chatBox = document.getElementById('chatBox');
             const msgEl = document.createElement('div');
             msgEl.className = 'chat-msg';
-            msgEl.innerHTML = `<b>${payload.new.username}:</b><span>${escapeHtml(payload.new.text)}</span>`;
+            msgEl.innerHTML = `<b>${payload.new.username}<span>${formatTime(payload.new.created_at)}</span>:</b><span>${escapeHtml(payload.new.text)}</span>`;
             chatBox.appendChild(msgEl);
             chatBox.scrollTop = chatBox.scrollHeight;
         })
@@ -514,7 +515,6 @@
         return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
 
-    // Резервное обновление раз в 10 сек
     setInterval(fetchGroup, 10000);
 </script>
 
