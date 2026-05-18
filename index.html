@@ -67,6 +67,17 @@
             font-size: 0.9rem;
         }
 
+        .total-time-badge {
+            font-size: 0.8rem;
+            background: #fff;
+            border: 2px solid var(--border);
+            padding: 2px 6px;
+            margin-top: -10px;
+            margin-bottom: 15px;
+            display: inline-block;
+            border-radius: 4px;
+        }
+
         /* Личный таймер в профиле */
         .timer-container {
             display: none;
@@ -84,7 +95,7 @@
             font-weight: 700;
             color: #0055ff;
         }
-        .timer-container.break-mode .timer-time {
+        .timer-container.paused .timer-time {
             color: var(--color-4);
         }
 
@@ -170,7 +181,7 @@
             white-space: nowrap;
             border-radius: 6px;
         }
-        .group-timer.break {
+        .group-timer.paused {
             color: #ff6000;
             background: #fff0e6;
         }
@@ -234,18 +245,21 @@
     <div class="brutal-card">
         <h2>Профиль</h2>
         <span id="myInfo">Загрузка...</span>
+        <div id="myTotalTime" class="total-time-badge" style="display: none;">Всего набрано: 0 сек.</div>
         
         <div id="timerContainer" class="timer-container">
             <span id="timerLabel">⏱️ Сессия:</span>
             <span id="timerTime" class="timer-time">0 сек.</span>
-            <button class="brutal-btn" style="padding: 5px 10px; margin-left: auto; background: var(--color-4); font-size: 0.7rem;" onclick="stopStudy()">Завершить</button>
+            
+            <button id="pauseBtn" class="brutal-btn" style="padding: 5px 10px; margin-left: auto; background: var(--color-2); font-size: 0.7rem;" onclick="togglePause()">Перерыв</button>
+            <button class="brutal-btn" style="padding: 5px 10px; margin-left: 5px; background: var(--color-4); font-size: 0.7rem;" onclick="stopStudy()">Завершить</button>
         </div>
 
         <div class="status-grid">
-            <button class="brutal-btn" style="background: var(--color-1);" onclick="changeStatus('Учусь', 'var(--color-1)', 'study')">Учусь</button>
-            <button class="brutal-btn" style="background: var(--color-2);" onclick="changeStatus('Кофе', 'var(--color-2)', 'break')">Кофе</button>
-            <button class="brutal-btn" style="background: var(--color-3);" onclick="changeStatus('В игре', 'var(--color-3)', 'stop')">В игре</button>
-            <button class="brutal-btn" style="background: var(--color-4);" onclick="changeStatus('Дома', 'var(--color-4)', 'stop')">Дома</button>
+            <button class="brutal-btn" style="background: var(--color-1);" onclick="startStudy()">Учусь</button>
+            <button class="brutal-btn" style="background: var(--color-2);" onclick="changeStatus('Кофе', 'var(--color-2)')">Кофе</button>
+            <button class="brutal-btn" style="background: var(--color-3);" onclick="changeStatus('В игре', 'var(--color-3)')">В игре</button>
+            <button class="brutal-btn" style="background: var(--color-4);" onclick="changeStatus('Дома', 'var(--color-4)')">Дома</button>
             
             <button id="loginBtn" class="brutal-btn auth-btn">Войти через Google</button>
             <button id="logoutBtn" class="brutal-btn auth-btn">Выйти из аккаунта</button>
@@ -279,15 +293,18 @@
     let currentUser = null;
     let localProfileTimer = null;
     let groupTimerInterval = null;
+    
     let currentStudyTimestamp = null;
+    let accumulatedSeconds = 0;
+    let isPausedLocal = false;
+    
     let cachedGroupData = [];
 
-    function formatDuration(ms) {
-        if (ms < 0 || isNaN(ms)) return '0 сек.';
-        const totalSeconds = Math.floor(ms / 1000);
-        if (totalSeconds < 60) return `${totalSeconds} сек.`;
-        const minutes = Math.floor(totalSeconds / 60) % 60;
-        const hours = Math.floor(totalSeconds / 3600);
+    function formatDuration(secondsCount) {
+        if (secondsCount < 0 || isNaN(secondsCount)) return '0 сек.';
+        if (secondsCount < 60) return `${secondsCount} сек.`;
+        const minutes = Math.floor(secondsCount / 60) % 60;
+        const hours = Math.floor(secondsCount / 3600);
         
         if (hours > 0) return `${hours}ч ${minutes}м`;
         return `${minutes} мин.`;
@@ -303,17 +320,20 @@
         const info = document.getElementById('myInfo');
         const lBtn = document.getElementById('loginBtn');
         const oBtn = document.getElementById('logoutBtn');
+        const totalBadge = document.getElementById('myTotalTime');
 
         if (currentUser) {
             info.innerText = currentUser.user_metadata.full_name || currentUser.email.split('@')[0];
             lBtn.style.display = 'none';
             oBtn.style.display = 'block';
+            totalBadge.style.display = 'inline-block';
             setOnlineStatus(true);
             checkActiveStudy();
         } else {
             info.innerText = "Войдите через Google для смены статуса";
             lBtn.style.display = 'block';
             oBtn.style.display = 'none';
+            totalBadge.style.display = 'none';
             document.getElementById('timerContainer').style.display = 'none';
             clearInterval(localProfileTimer);
         }
@@ -329,53 +349,185 @@
     }
 
     async function checkActiveStudy() {
-        const { data } = await supabase.from('profiles').select('status, study_started_at').eq('id', currentUser.id).single();
-        if (data && data.study_started_at) {
-            const mode = data.status === 'Кофе' ? 'break' : 'study';
-            startLocalTimer(data.study_started_at, mode);
-        } else {
-            document.getElementById('timerContainer').style.display = 'none';
-            clearInterval(localProfileTimer);
+        const { data } = await supabase.from('profiles').select('study_started_at, total_study_time, is_paused').eq('id', currentUser.id).single();
+        
+        if (data) {
+            const total = data.total_study_time || 0;
+            document.getElementById('myTotalTime').innerText = `Всего набрано: ${formatDuration(total)}`;
+            
+            if (data.study_started_at) {
+                startLocalTimer(data.study_started_at, total, data.is_paused);
+            } else {
+                document.getElementById('timerContainer').style.display = 'none';
+                clearInterval(localProfileTimer);
+            }
         }
     }
 
-    function startLocalTimer(timestamp, mode = 'study') {
+    function startLocalTimer(timestamp, storedTotalSeconds, isPausedDB) {
         currentStudyTimestamp = new Date(timestamp);
+        accumulatedSeconds = storedTotalSeconds;
+        isPausedLocal = isPausedDB;
+
         const container = document.getElementById('timerContainer');
         const label = document.getElementById('timerLabel');
+        const pBtn = document.getElementById('pauseBtn');
         
         container.style.display = 'flex';
         clearInterval(localProfileTimer);
 
-        if (mode === 'break') {
-            container.classList.add('break-mode');
-            label.innerText = '☕ Перерыв:';
+        if (isPausedLocal) {
+            container.classList.add('paused');
+            label.innerText = '☕ Пауза:';
+            pBtn.innerText = 'Продолжить';
+            pBtn.style.background = 'var(--color-3)';
+            
+            // На паузе показываем зафиксированное на момент остановки время
+            document.getElementById('timerTime').innerText = formatDuration(accumulatedSeconds);
         } else {
-            container.classList.remove('break-mode');
+            container.classList.remove('paused');
             label.innerText = '⏱️ Сессия:';
+            pBtn.innerText = 'Перерыв';
+            pBtn.style.background = 'var(--color-2)';
+
+            localProfileTimer = setInterval(() => {
+                const liveSessionSeconds = Math.floor((new Date() - currentStudyTimestamp) / 1000);
+                document.getElementById('timerTime').innerText = formatDuration(accumulatedSeconds + liveSessionSeconds);
+            }, 1000);
         }
-        
-        localProfileTimer = setInterval(() => {
-            const diff = new Date() - currentStudyTimestamp;
-            document.getElementById('timerTime').innerText = formatDuration(diff);
-        }, 1000);
     }
 
     function startGroupLiveTimers() {
         clearInterval(groupTimerInterval);
         groupTimerInterval = setInterval(() => {
+            const now = new Date();
             cachedGroupData.forEach(user => {
-                if ((user.status === 'Учусь' || user.status === 'Кофе') && user.study_started_at) {
+                if (user.study_started_at) {
                     const timerElement = document.getElementById(`timer-${user.id}`);
                     if (timerElement) {
-                        const diff = new Date() - new Date(user.study_started_at);
-                        const icon = user.status === 'Кофе' ? '☕' : '⏱️';
-                        timerElement.innerText = `${icon} ${formatDuration(diff)}`;
+                        const baseSec = user.total_study_time || 0;
+                        if (user.is_paused) {
+                            timerElement.innerText = `☕ Пауза: ${formatDuration(baseSec)}`;
+                        } else {
+                            const liveSec = Math.floor((now - new Date(user.study_started_at)) / 1000);
+                            timerElement.innerText = `⏱️ Учусь: ${formatDuration(baseSec + liveSec)}`;
+                        }
                     }
                 }
             });
         }, 1000);
     }
+
+    window.startStudy = async () => {
+        if (!currentUser) return alert("Нужно войти через Google!");
+        
+        // Перестраховка: если уже запущен таймер и мы на паузе, просто снимаем с паузы
+        if (isPausedLocal && currentStudyTimestamp) {
+            return togglePause();
+        }
+
+        const name = currentUser.user_metadata.full_name || currentUser.email.split('@')[0];
+        const startTime = new Date().toISOString();
+
+        // Берем актуальное сохраненное общее время из БД
+        const { data } = await supabase.from('profiles').select('total_study_time').eq('id', currentUser.id).single();
+        const currentTotal = data?.total_study_time || 0;
+
+        await supabase.from('profiles').upsert({
+            id: currentUser.id,
+            username: name,
+            status: 'Учусь',
+            color: 'var(--color-1)',
+            study_started_at: startTime,
+            is_paused: false,
+            is_online: true
+        });
+
+        startLocalTimer(startTime, currentTotal, false);
+        fetchGroup();
+    };
+
+    window.togglePause = async () => {
+        if (!currentUser || !currentStudyTimestamp) return;
+        const name = currentUser.user_metadata.full_name || currentUser.email.split('@')[0];
+
+        if (!isPausedLocal) {
+            // Включаем ПАУЗУ: считаем сколько секунд набежало с последнего старта и плюсуем в базу
+            const sessionSeconds = Math.floor((new Date() - currentStudyTimestamp) / 1000);
+            const newTotal = accumulatedSeconds + sessionSeconds;
+
+            await supabase.from('profiles').upsert({
+                id: currentUser.id,
+                username: name,
+                status: 'Кофе (Пауза)',
+                color: 'var(--color-2)',
+                is_paused: true,
+                total_study_time: newTotal,
+                is_online: true
+            });
+        } else {
+            // Выключаем паузу (ПРОДОЛЖАЕМ): обновляем точку старта study_started_at на текущий момент
+            const startTime = new Date().toISOString();
+            await supabase.from('profiles').upsert({
+                id: currentUser.id,
+                username: name,
+                status: 'Учусь',
+                color: 'var(--color-1)',
+                study_started_at: startTime,
+                is_paused: false,
+                is_online: true
+            });
+        }
+        checkActiveStudy();
+        fetchGroup();
+    };
+
+    window.stopStudy = async () => {
+        if (!currentUser) return;
+        clearInterval(localProfileTimer);
+        document.getElementById('timerContainer').style.display = 'none';
+
+        let finalTotal = accumulatedSeconds;
+        // Если завершаем прямо во время активного тикания, добавляем хвостик времени
+        if (!isPausedLocal && currentStudyTimestamp) {
+            const sessionSeconds = Math.floor((new Date() - currentStudyTimestamp) / 1000);
+            finalTotal += sessionSeconds;
+        }
+
+        const name = currentUser.user_metadata.full_name || currentUser.email.split('@')[0];
+        await supabase.from('profiles').upsert({
+            id: currentUser.id,
+            username: name,
+            status: 'Отдыхает',
+            color: '#eee',
+            study_started_at: null,
+            is_paused: false,
+            total_study_time: finalTotal,
+            is_online: true
+        });
+
+        currentStudyTimestamp = null;
+        checkActiveStudy();
+        fetchGroup();
+    };
+
+    window.changeStatus = async (text, color) => {
+        if (!currentUser) return alert("Нужно войти через Google!");
+        const name = currentUser.user_metadata.full_name || currentUser.email.split('@')[0];
+
+        // Обычные кнопки статуса не ломают таймер сессии, если он запущен,
+        // они просто меняют текстовую плашку статуса пользователя.
+        await supabase.from('profiles').upsert({
+            id: currentUser.id,
+            username: name,
+            status: text,
+            color: color,
+            is_online: true
+        });
+        fetchGroup();
+    };
+
+    // --- Дальнейшая обвязка (Синхронизация, чат, Supabase) без изменений ---
 
     supabase.auth.getSession().then(({ data: { session } }) => {
         updateUI(session);
@@ -405,49 +557,6 @@
         window.location.reload();
     };
 
-    window.changeStatus = async (text, color, timerMode = 'stop') => {
-        if (!currentUser) return alert("Нужно войти через Google!");
-
-        const name = currentUser.user_metadata.full_name || currentUser.email.split('@')[0];
-        const updateData = {
-            id: currentUser.id,
-            username: name,
-            status: text,
-            color: color,
-            is_online: true
-        };
-
-        if (timerMode === 'study' || timerMode === 'break') {
-            const startTime = new Date().toISOString();
-            updateData.study_started_at = startTime;
-            startLocalTimer(startTime, timerMode);
-        } else {
-            updateData.study_started_at = null;
-            document.getElementById('timerContainer').style.display = 'none';
-            clearInterval(localProfileTimer);
-        }
-
-        await supabase.from('profiles').upsert(updateData);
-        fetchGroup();
-    };
-
-    window.stopStudy = async () => {
-        if (!currentUser) return;
-        clearInterval(localProfileTimer);
-        document.getElementById('timerContainer').style.display = 'none';
-
-        const name = currentUser.user_metadata.full_name || currentUser.email.split('@')[0];
-        await supabase.from('profiles').upsert({
-            id: currentUser.id,
-            username: name,
-            status: 'Отдыхает',
-            color: '#eee',
-            study_started_at: null,
-            is_online: true
-        });
-        fetchGroup();
-    };
-
     async function fetchGroup() {
         const { data, error } = await supabase
             .from('profiles')
@@ -463,11 +572,17 @@
         list.innerHTML = data.map(user => {
             let timerHtml = '';
             
-            if ((user.status === 'Учусь' || user.status === 'Кофе') && user.study_started_at) {
-                const diff = now - new Date(user.study_started_at);
-                const isBreak = user.status === 'Кофе';
-                const icon = isBreak ? '☕' : '⏱️';
-                timerHtml = `<div id="timer-${user.id}" class="group-timer ${isBreak ? 'break' : ''}">${icon} ${formatDuration(diff)}</div>`;
+            if (user.study_started_at) {
+                const baseSec = user.total_study_time || 0;
+                if (user.is_paused) {
+                    timerHtml = `<div id="timer-${user.id}" class="group-timer paused">☕ Пауза: ${formatDuration(baseSec)}</div>`;
+                } else {
+                    const liveSec = Math.floor((now - new Date(user.study_started_at)) / 1000);
+                    timerHtml = `<div id="timer-${user.id}" class="group-timer">⏱️ Учусь: ${formatDuration(baseSec + liveSec)}</div>`;
+                }
+            } else if (user.total_study_time > 0) {
+                // Если сейчас не учится, но время есть — выводим архивный баланс
+                timerHtml = `<div class="group-timer paused" style="background:#eee; color:#666;">⌛ Всего: ${formatDuration(user.total_study_time)}</div>`;
             }
 
             return `
