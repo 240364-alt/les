@@ -946,7 +946,97 @@
         if (!text) return '';
         return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
+// ==========================================
+// ФУНКЦИЯ 1: Система Стриков (Серия дней)
+// ==========================================
+async function updateStreak() {
+    if (!currentUser) return;
 
+    // 1. Запрашиваем из базы дату последнего действия и текущий стрик
+    const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('last_activity_date, streak_count')
+        .eq('id', currentUser.id)
+        .single();
+
+    if (error || !profile) return;
+
+    const todayStr = new Date().toISOString().split('T')[0]; // ГГГГ-ММ-ДД
+    const lastDateStr = profile.last_activity_date;
+
+    let newStreak = profile.streak_count || 0;
+
+    // Проверяем, заходил ли юзер уже сегодня. Если нет — считаем стрик
+    if (lastDateStr !== todayStr) {
+        if (lastDateStr) {
+            const today = new Date(todayStr);
+            const lastActive = new Date(lastDateStr);
+            
+            // Считаем разницу в днях между сегодня и последней активностью
+            const diffTime = Math.abs(today - lastActive);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            if (diffDays === 1) {
+                newStreak += 1; // Зашел на следующий день -> стрик растет!
+            } else if (diffDays > 1) {
+                newStreak = 1;  // Пропустил день -> сброс серии на 1
+            }
+        } else {
+            newStreak = 1; // Самый первый вход нового пользователя
+        }
+
+        // 2. Сохраняем обновленные данные обратно в Supabase
+        await supabase
+            .from('profiles')
+            .update({ 
+                last_activity_date: todayStr, 
+                streak_count: newStreak 
+            })
+            .eq('id', currentUser.id);
+            
+        console.log(`Серия дней обновлена! Текущий стрик: ${newStreak}`);
+    }
+}
+
+// ==========================================
+// ФУНКЦИЯ 2: Аналитика активности группы
+// ==========================================
+async function calculateGroupAnalytics() {
+    // 1. Запрашиваем данные всех студентов из таблицы profiles
+    const { data: students, error } = await supabase
+        .from('profiles')
+        .select('total_study_time, is_online');
+
+    if (error || !students || students.length === 0) return;
+
+    // 2. Вычисляем метрики с помощью обычных циклов/методов массивов
+    const totalStudents = students.length;
+    const onlineCount = students.filter(s => s.is_online).length;
+    
+    // Считаем общее время всей группы (в секундах)
+    const totalGroupSeconds = students.reduce((acc, curr) => acc + (curr.total_study_time || 0), 0);
+    
+    // Среднее время на одного студента
+    const averageSeconds = Math.round(totalGroupSeconds / totalStudents);
+
+    // 3. Выводим результат на экран (например, создав плашку вверху рейтинга)
+    const statsContainer = document.getElementById('leaderboardList');
+    
+    // Вставляем брутальный блок статистики перед списком топ-10
+    const analyticsHtml = `
+        <div style="background: var(--color-3); border: 3px solid var(--border); padding: 15px; margin-bottom: 20px; box-shadow: 4px 4px 0px var(--border); border-radius: 8px;">
+            <div style="font-weight:700; text-transform:uppercase; font-size:0.8rem; margin-bottom:8px;">📊 Пульс Группы:</div>
+            <div style="font-size:0.75rem; line-height:1.5;">
+                • Студентов онлайн: <b>${onlineCount} из ${totalStudents}</b><br>
+                • Всего накурено часов: <b>${Math.shadow = Math.floor(totalGroupSeconds / 3600)} ч.</b><br>
+                • В среднем на студента: <b>${formatDuration(averageSeconds)}</b>
+            </div>
+        </div>
+    `;
+    
+    // Перезаписываем контейнер, добавляя аналитику вверх
+    statsContainer.innerHTML = analyticsHtml + statsContainer.innerHTML;
+}
     setInterval(fetchGroup, 10000);
 </script>
 
